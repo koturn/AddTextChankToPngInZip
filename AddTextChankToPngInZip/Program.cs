@@ -99,6 +99,7 @@ namespace AddTextChankToPngInZip
                 }
 
                 var nProcPngFiles = 0;
+                var tsDict = new Dictionary<DateTimeOffset, int>();
 
                 foreach (var srcEntry in srcArchive.Entries)
                 {
@@ -135,8 +136,11 @@ namespace AddTextChankToPngInZip
                         using var ms = new MemoryStream();
                         enc.Save(ms);
 
+                        tsDict.TryGetValue(srcEntry.LastWriteTime, out int n);
+                        tsDict[srcEntry.LastWriteTime] = n + 1;
+
                         var entryParts = srcEntry.FullName.Split('/');
-                        entryParts[entryParts.Length - 1] = "cluster_" + srcEntry.LastWriteTime.ToString("yyyy-MM-dd_HH-mm-ss") + ".png";
+                        entryParts[entryParts.Length - 1] = "cluster_" + srcEntry.LastWriteTime.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + n.ToString("D3") + ".png";
 
                         var dstEntry = dstArchive.CreateEntry(
                             string.Join('/', entryParts),
