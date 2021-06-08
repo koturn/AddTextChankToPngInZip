@@ -148,8 +148,7 @@ namespace AddTextChankToPngInZip
                         using (var dstZs = dstEntry.Open())
                         {
                             // "ms.CopyTo(dstZs)" doesn't work well...
-                            var bytes = ms.GetBuffer();
-                            dstZs.Write(bytes, 0, (int)ms.Length);
+                            dstZs.Write(ms.GetBuffer(), 0, (int)ms.Length);
                         }
 
                         _logger.Info("[{0}] {1} -> {2}", procIndex, srcEntry.FullName, dstEntry.FullName);
