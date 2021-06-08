@@ -136,13 +136,10 @@ namespace AddTextChankToPngInZip
                         enc.Save(ms);
 
                         var entryParts = srcEntry.FullName.Split('/');
+                        entryParts[entryParts.Length - 1] = "cluster_" + srcEntry.LastWriteTime.ToString("yyyy-MM-dd_HH-mm-ss") + ".png";
 
-                        var prefix = string.Join('/', entryParts.Take(entryParts.Length - 1));
-                        if (prefix.Length > 0) {
-                            prefix += "/";
-                        }
                         var dstEntry = dstArchive.CreateEntry(
-                            prefix + "cluster_" + srcEntry.LastWriteTime.ToString("yyyy-MM-dd_HH-mm-ss") + ".png",
+                            string.Join('/', entryParts),
                             CompressionLevel.Optimal);
                         dstEntry.LastWriteTime = srcEntry.LastWriteTime;
                         using (var dstZs = dstEntry.Open())
