@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -157,10 +156,7 @@ namespace AddTextChankToPngInZip
                             procIndex,
                             srcEntry.FullName);
                         CopyZipEntry(srcEntry, procIndex, sw);
-                        lock (((ICollection)errorImageList).SyncRoot)
-                        {
-                            errorImageList.Add(srcEntry.FullName);
-                        }
+                        errorImageList.Add(srcEntry.FullName);
                     }
                 };
             }
