@@ -1,4 +1,7 @@
-﻿namespace AddTextChankToPngInZip
+﻿using System;
+
+
+namespace AddTextChankToPngInZip
 {
     public class Crc32Calculator
     {
@@ -7,29 +10,38 @@
 
         public static uint Compute(byte[] buf)
         {
-            return Compute(buf, 0, buf.Length);
+            return Compute(buf.AsSpan());
         }
 
         public static uint Compute(byte[] buf, int offset, int count)
         {
-            return Finalize(Update(buf, offset, count));
+            return Compute(buf.AsSpan(offset, count));
+        }
+
+        public static uint Compute(Span<byte> buf)
+        {
+            return Finalize(Update(buf));
         }
 
 
         public static uint Update(byte[] buf, uint crc = 0xffffffff)
         {
-            return Update(buf, 0, buf.Length, crc);
+            return Update(buf.AsSpan(), crc);
         }
 
         public static uint Update(byte[] buf, int offset, int count, uint crc = 0xffffffff)
         {
+            return Update(buf.AsSpan(offset, count), crc);
+        }
+
+        public static uint Update(Span<byte> buf, uint crc = 0xffffffff)
+        {
             var crcTable = GetTable();
 
             var c = crc;
-            var n = offset + count;
-            for (int i = offset; i < n; i++)
+            foreach (var x in buf)
             {
-                c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >> 8);
+                c = crcTable[(c ^ x) & 0xff] ^ (c >> 8);
             }
 
             return c;
