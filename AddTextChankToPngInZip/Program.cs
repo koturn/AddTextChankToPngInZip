@@ -5,9 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Security;
-using System.Windows.Media.Imaging;
+using System.Text;
 
 using NLog;
 
@@ -19,6 +17,14 @@ namespace AddTextChankToPngInZip
     /// </summary>
     static class Program
     {
+        private const int DefaultBufferSize = 8192;
+        private const string ChunkNameText = "tEXt";
+        private const string ChunkNameTime = "tIME";
+        private const string ChunkNameIend = "IEND";
+        private const string TextChunkKeyTitle = "Title";
+        private const string TextChunkKeyCreationTime = "Creation Time";
+
+        private static readonly byte[] PngSignature;
         /// <summary>
         /// Logging instance.
         /// </summary>
@@ -29,8 +35,8 @@ namespace AddTextChankToPngInZip
         /// </summary>
         static Program()
         {
-            SetupConsole();
             _logger = LogManager.GetCurrentClassLogger();
+            PngSignature = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0d, 0x0a, 0x1a, 0x0a };
         }
 
 
@@ -117,39 +123,28 @@ namespace AddTextChankToPngInZip
 
                     try
                     {
-                        using var srcZs = srcEntry.Open();
-
-                        var dec = new PngBitmapDecoder(srcZs, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.None);
-                        var frame = BitmapFrame.Create(dec.Frames[0]);
-
-                        var meta = (BitmapMetadata)frame.Metadata;
-                        meta.SetQuery("/[0]tEXt/Title", srcEntry.Name);
-
-                        // For the Creation Time keyword, the date format defined in section 5.2.14 of RFC 1123 is suggested
-                        // but file explorer of Windows detects following format, "yyyy:MM:dd HH:mm.ss".
-                        //   meta.SetQuery("/[1]tEXt/Creation Time", srcEntry.LastWriteTime.ToString("r"));
-                        meta.SetQuery("/[1]tEXt/Creation Time", srcEntry.LastWriteTime.ToString("yyyy:MM:dd HH:mm:ss"));
-
-                        var enc = new PngBitmapEncoder();
-                        enc.Frames.Add(frame);
-
-                        using var ms = new MemoryStream();
-                        enc.Save(ms);
-
                         tsDict.TryGetValue(srcEntry.LastWriteTime, out int n);
                         tsDict[srcEntry.LastWriteTime] = n + 1;
 
                         var entryParts = srcEntry.FullName.Split('/');
-                        entryParts[entryParts.Length - 1] = "cluster_" + srcEntry.LastWriteTime.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + n.ToString("D3") + ".png";
+                        entryParts[^1] = "cluster_" + srcEntry.LastWriteTime.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + n.ToString("D3") + ".png";
 
                         var dstEntry = dstArchive.CreateEntry(
                             string.Join('/', entryParts),
                             CompressionLevel.Optimal);
                         dstEntry.LastWriteTime = srcEntry.LastWriteTime;
+                        using (var srcZs = srcEntry.Open())
                         using (var dstZs = dstEntry.Open())
                         {
-                            // "ms.CopyTo(dstZs)" doesn't work well...
-                            dstZs.Write(ms.GetBuffer(), 0, (int)ms.Length);
+                            AddTextTimeChunk(
+                                srcZs,
+                                dstZs,
+                                new List<KeyValuePair<string, string>>()
+                                {
+                                    KeyValuePair.Create(TextChunkKeyTitle, srcEntry.Name),
+                                    KeyValuePair.Create(TextChunkKeyCreationTime, srcEntry.LastWriteTime.ToString("yyyy:MM:dd HH:mm:ss")),
+                                },
+                                srcEntry.LastWriteTime.DateTime);
                         }
 
                         _logger.Info("[{0}] {1} -> {2}", procIndex, srcEntry.FullName, dstEntry.FullName);
@@ -192,54 +187,148 @@ namespace AddTextChankToPngInZip
             }
         }
 
-        /// <summary>
-        /// Setup console to output stdout messages.
-        /// </summary>
-        /// <returns>true if </returns>
-        static bool SetupConsole()
+        static void AddTextTimeChunk(Stream srcPngStream, Stream dstPngStream, List<KeyValuePair<string, string>> textChunkKeyValues, DateTime dt)
         {
-            if (UnsafeNativeMethods.AttachConsole(-1))
+            var buffer = new byte[DefaultBufferSize];
+            if (srcPngStream.Read(buffer, 0, PngSignature.Length) < PngSignature.Length)
+            {
+                throw new Exception("Source PNG file data is too small.");
+            }
+
+            if (!HasPngSignature(buffer))
+            {
+                throw new Exception($"Invalid PNG signature: {string.Join(',', buffer.Select(b => "0x" + ((int)b).ToString("X2")))}");
+            }
+
+            // Write PNG Signature
+            dstPngStream.Write(PngSignature, 0, PngSignature.Length);
+
+            // Read IHDR
+            using var br = new BinaryReader(srcPngStream, Encoding.ASCII, true);
+            using var bw = new BinaryWriter(dstPngStream, Encoding.ASCII, true);
+
+            var chunkTypeData = new byte[4];
+            string chunkType;
+
+            do
+            {
+                var dataLength = SwapBytes(br.ReadUInt32());
+                if (br.Read(chunkTypeData, 0, chunkTypeData.Length) < chunkTypeData.Length)
+                {
+                    throw new Exception("Failed to read chunk type.");
+                }
+
+                chunkType = Encoding.ASCII.GetString(chunkTypeData);
+
+                // Insert tEXt and tIME chunks before IEND.
+                if (chunkType == ChunkNameIend)
+                {
+                    WriteTextChunks(bw, textChunkKeyValues);
+                    WriteTimeChunk(bw, dt);
+                }
+
+                // Copy current chunk
+                bw.Write(SwapBytes(dataLength));
+                bw.Write(chunkTypeData);
+
+                var remLength = (int)dataLength + 4;
+                if (buffer.Length < remLength)
+                {
+                    buffer = new byte[remLength];
+                }
+                if (br.BaseStream.Read(buffer, 0, remLength) < remLength)
+                {
+                    throw new Exception("Failed to read chunk data and CRC.");
+                }
+
+                bw.BaseStream.Write(buffer, 0, remLength);
+            } while (chunkType != ChunkNameIend);
+        }
+
+        private static void WriteTextChunks(BinaryWriter bw, List<KeyValuePair<string, string>>  textChunkKeyValues)
+        {
+            foreach (var p in textChunkKeyValues)
+            {
+                WriteTextChunk(bw, p.Key, p.Value);
+            }
+        }
+
+        private static void WriteTextChunk(BinaryWriter bw, string key, string value)
+        {
+            var keyData = Encoding.ASCII.GetBytes(key);
+            var valueData = Encoding.ASCII.GetBytes(value);
+
+            bw.Write(SwapBytes(keyData.Length + 1 + valueData.Length));
+
+            var textChunkTypeData = Encoding.ASCII.GetBytes(ChunkNameText);
+            bw.Write(textChunkTypeData);
+
+            bw.Write(keyData);
+            bw.Write((byte)0);
+            bw.Write(valueData);
+
+            var crc = Crc32Calculator.Update(textChunkTypeData);
+            crc = Crc32Calculator.Update(keyData, crc);
+            crc = Crc32Calculator.Update((byte)0, crc);
+            crc = Crc32Calculator.Update(valueData, crc);
+
+            bw.Write(SwapBytes(Crc32Calculator.Finalize(crc)));
+        }
+
+        private static void WriteTimeChunk(BinaryWriter bw, DateTime dt)
+        {
+            var dtData = new byte[] {
+                (byte)((dt.Year & 0xff00) >> 8),
+                (byte)(dt.Year & 0xff),
+                (byte)dt.Month,
+                (byte)dt.Day,
+                (byte)dt.Hour,
+                (byte)dt.Minute,
+                (byte)dt.Second,
+            };
+
+            bw.Write(SwapBytes(dtData.Length));
+
+            var textChunkTypeData = Encoding.ASCII.GetBytes(ChunkNameTime);
+
+            bw.Write(textChunkTypeData);
+            bw.Write(dtData);
+
+            var crc = Crc32Calculator.Update(textChunkTypeData);
+            crc = Crc32Calculator.Update(dtData, crc);
+
+            bw.Write(SwapBytes(Crc32Calculator.Finalize(crc)));
+        }
+
+        private static bool HasPngSignature(byte[] data)
+        {
+            if (data.Length < PngSignature.Length)
             {
                 return false;
             }
 
-            if (!UnsafeNativeMethods.AllocConsole())
+            for (int i = 0; i < PngSignature.Length; i++)
             {
-                return false;
+                if (data[i] != PngSignature[i])
+                {
+                    return false;
+                }
             }
-
-            // Console.SetOut(new StreamWriter(Console.OpenStandardOutput())
-            // {
-            //     AutoFlush = true,
-            // });
 
             return true;
         }
 
-        /// <summary>
-        /// P/Invoke functions.
-        /// </summary>
-        [SuppressUnmanagedCodeSecurity]
-        internal static class UnsafeNativeMethods
+        private static int SwapBytes(int x)
         {
-            /// <summary>
-            /// Attaches the calling process to the console of the specified process as a client application.
-            /// </summary>
-            /// <returns>If the function succeeds, the return value is <c>true</c>.</returns>
-            [DllImport("Kernel32.dll")]
-            public static extern bool AttachConsole(int processId);
-            /// <summary>
-            /// Allocates a new console for the calling process.
-            /// </summary>
-            /// <returns>If the function succeeds, the return value is <c>true</c>.</returns>
-            [DllImport("Kernel32.dll")]
-            public static extern bool AllocConsole();
-            /// <summary>
-            /// Detaches the calling process from its console.
-            /// </summary>
-            /// <returns>If the function succeeds, the return value is <c>true</c>.</returns>
-            [DllImport("Kernel32.dll")]
-            public static extern bool FreeConsole();
+            return (int)SwapBytes((uint)x);
+        }
+
+        private static uint SwapBytes(uint x)
+        {
+            return ((x & 0xff000000) >> 24)
+                | ((x & 0x00ff0000) >> 8)
+                | ((x & 0x0000ff00) << 8)
+                | ((x & 0x000000ff) << 24);
         }
     }
 }
