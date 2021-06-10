@@ -210,6 +210,9 @@ namespace AddTextChankToPngInZip
             var chunkTypeData = new byte[4];
             string chunkType;
 
+            var hasTimeChunk = false;
+            var keySet = new HashSet<string>();
+
             do
             {
                 var dataLength = SwapBytes(br.ReadUInt32());
@@ -220,11 +223,48 @@ namespace AddTextChankToPngInZip
 
                 chunkType = Encoding.ASCII.GetString(chunkTypeData);
 
-                // Insert tEXt and tIME chunks before IEND.
-                if (chunkType == ChunkNameIend)
+                if (chunkType == ChunkNameText)
                 {
-                    WriteTextChunks(bw, textChunkKeyValues);
-                    WriteTimeChunk(bw, dt);
+                    if (buffer.Length < dataLength)
+                    {
+                        buffer = new byte[dataLength];
+                    }
+                    if (br.BaseStream.Read(buffer, 0, (int)dataLength) < dataLength)
+                    {
+                        throw new Exception("Failed to read tEXt chunk data.");
+                    }
+                    var nullCharPos = Array.IndexOf(buffer, (byte)0, 0, (int)dataLength);
+                    if (nullCharPos != -1)
+                    {
+                        var key = Encoding.ASCII.GetString(buffer, 0, nullCharPos);
+                        _logger.Debug("key found: {0}", key);
+                        keySet.Add(key);
+                    }
+
+                    bw.Write(SwapBytes(dataLength));
+                    bw.Write(chunkTypeData);
+                    bw.BaseStream.Write(buffer, 0, (int)dataLength);
+                    if (br.BaseStream.Read(buffer, 0, 4) < 4)
+                    {
+                        throw new Exception("Failed to read CRC.");
+                    }
+                    bw.BaseStream.Write(buffer, 0, 4);
+
+                    continue;
+                }
+
+                if (chunkType == ChunkNameTime)
+                {
+                    hasTimeChunk = true;
+                }
+                else if (chunkType == ChunkNameIend)
+                {
+                    // Insert tEXt and tIME chunks before IEND.
+                    WriteTextChunks(bw, textChunkKeyValues.Where(kv => !keySet.Contains(kv.Key)));
+                    if (!hasTimeChunk)
+                    {
+                        WriteTimeChunk(bw, dt);
+                    }
                 }
 
                 // Copy current chunk
@@ -245,7 +285,7 @@ namespace AddTextChankToPngInZip
             } while (chunkType != ChunkNameIend);
         }
 
-        private static void WriteTextChunks(BinaryWriter bw, List<KeyValuePair<string, string>>  textChunkKeyValues)
+        private static void WriteTextChunks(BinaryWriter bw, IEnumerable<KeyValuePair<string, string>>  textChunkKeyValues)
         {
             foreach (var p in textChunkKeyValues)
             {
