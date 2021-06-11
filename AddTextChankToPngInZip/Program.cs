@@ -152,7 +152,7 @@ namespace AddTextChankToPngInZip
                         tsDict[srcEntry.LastWriteTime] = n + 1;
 
                         var entryParts = srcEntry.FullName.Split('/');
-                        entryParts[^1] = "cluster_" + srcEntry.LastWriteTime.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + n.ToString("D3") + ".png";
+                        entryParts[^1] = $"cluster_{srcEntry.LastWriteTime:yyyy-MM-dd_HH-mm-ss}_{n:D3}.png";
 
                         var dstEntry = dstArchive.CreateEntry(
                             string.Join('/', entryParts),
