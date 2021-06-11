@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -244,7 +245,7 @@ namespace AddTextChankToPngInZip
 
             do
             {
-                var dataLength = SwapBytes(br.ReadUInt32());
+                var dataLength = BinaryPrimitives.ReverseEndianness(br.ReadUInt32());
                 if (br.Read(chunkTypeData, 0, chunkTypeData.Length) < chunkTypeData.Length)
                 {
                     throw new Exception("Failed to read chunk type.");
@@ -270,7 +271,7 @@ namespace AddTextChankToPngInZip
                         keySet.Add(key);
                     }
 
-                    bw.Write(SwapBytes(dataLength));
+                    bw.Write(BinaryPrimitives.ReverseEndianness(dataLength));
                     bw.Write(chunkTypeData);
                     bw.BaseStream.Write(buffer, 0, (int)dataLength);
                     if (br.BaseStream.Read(buffer, 0, 4) < 4)
@@ -297,7 +298,7 @@ namespace AddTextChankToPngInZip
                 }
 
                 // Copy current chunk
-                bw.Write(SwapBytes(dataLength));
+                bw.Write(BinaryPrimitives.ReverseEndianness(dataLength));
                 bw.Write(chunkTypeData);
 
                 var remLength = (int)dataLength + 4;
@@ -338,7 +339,7 @@ namespace AddTextChankToPngInZip
             var keyData = Encoding.ASCII.GetBytes(key);
             var valueData = Encoding.ASCII.GetBytes(value);
 
-            bw.Write(SwapBytes(keyData.Length + 1 + valueData.Length));
+            bw.Write(BinaryPrimitives.ReverseEndianness(keyData.Length + 1 + valueData.Length));
 
             var textChunkTypeData = Encoding.ASCII.GetBytes(ChunkNameText);
             bw.Write(textChunkTypeData);
@@ -352,7 +353,7 @@ namespace AddTextChankToPngInZip
             crc = Crc32Calculator.Update((byte)0, crc);
             crc = Crc32Calculator.Update(valueData, crc);
 
-            bw.Write(SwapBytes(Crc32Calculator.Finalize(crc)));
+            bw.Write(BinaryPrimitives.ReverseEndianness(Crc32Calculator.Finalize(crc)));
         }
 
         /// <summary>
@@ -372,7 +373,7 @@ namespace AddTextChankToPngInZip
                 (byte)dt.Second,
             };
 
-            bw.Write(SwapBytes(dtData.Length));
+            bw.Write(BinaryPrimitives.ReverseEndianness(dtData.Length));
 
             var textChunkTypeData = Encoding.ASCII.GetBytes(ChunkNameTime);
 
@@ -382,7 +383,7 @@ namespace AddTextChankToPngInZip
             var crc = Crc32Calculator.Update(textChunkTypeData);
             crc = Crc32Calculator.Update(dtData, crc);
 
-            bw.Write(SwapBytes(Crc32Calculator.Finalize(crc)));
+            bw.Write(BinaryPrimitives.ReverseEndianness(Crc32Calculator.Finalize(crc)));
         }
 
         /// <summary>
@@ -406,29 +407,6 @@ namespace AddTextChankToPngInZip
             }
 
             return true;
-        }
-
-        /// <summary>
-        /// Swap byte ordering of an <see cref="int"/> value.
-        /// </summary>
-        /// <param name="x">An <see cref="int"/> value.</param>
-        /// <returns>Swapped <see cref="int"/> value.</returns>
-        private static int SwapBytes(int x)
-        {
-            return (int)SwapBytes((uint)x);
-        }
-
-        /// <summary>
-        /// Swap byte ordering of an <see cref="uint"/> value.
-        /// </summary>
-        /// <param name="x">An <see cref="uint"/> value.</param>
-        /// <returns>Swapped <see cref="uint"/> value.</returns>
-        private static uint SwapBytes(uint x)
-        {
-            return ((x & 0xff000000) >> 24)
-                | ((x & 0x00ff0000) >> 8)
-                | ((x & 0x0000ff00) << 8)
-                | ((x & 0x000000ff) << 24);
         }
     }
 }
