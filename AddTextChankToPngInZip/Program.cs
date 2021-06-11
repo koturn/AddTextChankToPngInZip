@@ -20,7 +20,7 @@ namespace AddTextChankToPngInZip
         /// <summary>
         /// Default read buffer size.
         /// </summary>
-        private const int DefaultBufferSize = 8192;
+        private const int DefaultBufferSize = 81920;
         /// <summary>
         /// Chunk type string of tEXt chunk.
         /// </summary>
@@ -237,7 +237,7 @@ namespace AddTextChankToPngInZip
             using var br = new BinaryReader(srcPngStream, Encoding.ASCII, true);
             using var bw = new BinaryWriter(dstPngStream, Encoding.ASCII, true);
 
-            var chunkTypeData = new byte[4];
+            Span<byte> chunkTypeData = stackalloc byte[4];
             string chunkType;
 
             var hasTimeChunk = false;
@@ -246,7 +246,7 @@ namespace AddTextChankToPngInZip
             do
             {
                 var dataLength = BinaryPrimitives.ReverseEndianness(br.ReadUInt32());
-                if (br.Read(chunkTypeData, 0, chunkTypeData.Length) < chunkTypeData.Length)
+                if (br.Read(chunkTypeData) < chunkTypeData.Length)
                 {
                     throw new Exception("Failed to read chunk type.");
                 }
@@ -255,10 +255,7 @@ namespace AddTextChankToPngInZip
 
                 if (chunkType == ChunkNameText)
                 {
-                    if (buffer.Length < dataLength)
-                    {
-                        buffer = new byte[dataLength];
-                    }
+                    buffer = EnsureCapacity(buffer, (int)dataLength);
                     if (br.BaseStream.Read(buffer, 0, (int)dataLength) < dataLength)
                     {
                         throw new Exception("Failed to read tEXt chunk data.");
@@ -302,10 +299,7 @@ namespace AddTextChankToPngInZip
                 bw.Write(chunkTypeData);
 
                 var remLength = (int)dataLength + 4;
-                if (buffer.Length < remLength)
-                {
-                    buffer = new byte[remLength];
-                }
+                buffer = EnsureCapacity(buffer, remLength);
                 if (br.BaseStream.Read(buffer, 0, remLength) < remLength)
                 {
                     throw new Exception("Failed to read chunk data and CRC.");
@@ -363,7 +357,7 @@ namespace AddTextChankToPngInZip
         /// <param name="dt"><see cref="DateTime"/> value for tIME chunk.</param>
         private static void WriteTimeChunk(BinaryWriter bw, DateTime dt)
         {
-            var dtData = new byte[] {
+            Span<byte> dtData = stackalloc byte[] {
                 (byte)((dt.Year & 0xff00) >> 8),
                 (byte)(dt.Year & 0xff),
                 (byte)dt.Month,
@@ -407,6 +401,18 @@ namespace AddTextChankToPngInZip
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Ensures that the capacity of <paramref name="data"/> is at least the specified value, <paramref name="required"/>.
+        /// </summary>
+        /// <param name="data">Souce <see cref="byte"/> array.</param>
+        /// <param name="required">Required capacity</param>
+        /// <returns><paramref name="data"/> if <c><paramref name="data"/>.Length &gt;= <paramref name="required"/></c>,
+        /// otherwise new allocated <see cref="byte"/> array.</returns>
+        private static byte[] EnsureCapacity(byte[] data, int required)
+        {
+            return data.Length < required ? new byte[required] : data;
         }
     }
 }
