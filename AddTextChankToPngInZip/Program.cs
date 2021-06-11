@@ -357,14 +357,15 @@ namespace AddTextChankToPngInZip
         /// <param name="dt"><see cref="DateTime"/> value for tIME chunk.</param>
         private static void WriteTimeChunk(BinaryWriter bw, DateTime dt)
         {
+            var dtUtc = dt.ToUniversalTime();
             Span<byte> dtData = stackalloc byte[] {
-                (byte)((dt.Year & 0xff00) >> 8),
-                (byte)(dt.Year & 0xff),
-                (byte)dt.Month,
-                (byte)dt.Day,
-                (byte)dt.Hour,
-                (byte)dt.Minute,
-                (byte)dt.Second,
+                (byte)((dtUtc.Year & 0xff00) >> 8),
+                (byte)(dtUtc.Year & 0xff),
+                (byte)dtUtc.Month,
+                (byte)dtUtc.Day,
+                (byte)dtUtc.Hour,
+                (byte)dtUtc.Minute,
+                (byte)dtUtc.Second,
             };
 
             bw.Write(BinaryPrimitives.ReverseEndianness(dtData.Length));
