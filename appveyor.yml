@@ -1,0 +1,32 @@
+version: 1.0.{build}
+image: Visual Studio 2019
+init:
+- cmd: '"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"'
+build_script:
+- cmd: >-
+    git submodule update --init
+
+    msbuild /nologo /m /t:restore /p:Configuration=Release;Platform="Any CPU" AddTextChankToPngInZip.sln
+
+    msbuild /nologo /m /p:Configuration=Release;Platform="Any CPU" AddTextChankToPngInZip.sln
+
+    dotnet publish --nologo /p:Configuration=Release;Platform="Any CPU" -c Release -o Artifacts\AddTextChankToPngInZip AddTextChankToPngInZip.sln || set ERRORLEVEL=0
+
+    dotnet publish --nologo  /p:Platform="Any CPU" -c Release -o Artifacts\AddTextChankToPngInZip-winx64 -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRunShowWarnings=true --self-contained true -r win-x64 AddTextChankToPngInZip.sln || set ERRORLEVEL=0
+
+    del Artifacts\AddTextChankToPngInZip\*.pdb
+
+    del Artifacts\AddTextChankToPngInZip-winx64\*.pdb
+
+    cd Artifacts
+
+    7z a -mm=Deflate -mfb=258 -mpass=15 -r ..\AddTextChankToPngInZip.zip AddTextChankToPngInZip
+
+    7z a -mm=Deflate -mfb=258 -mpass=15 -r ..\AddTextChankToPngInZip-winx64.zip AddTextChankToPngInZip-winx64
+
+    cd ..
+artifacts:
+- path: AddTextChankToPngInZip.zip
+  name: .NET 5 binary of AddTextChankToPngInZip
+- path: AddTextChankToPngInZip-winx64.zip
+  name: Self contained binary of AddTextChankToPngInZip
