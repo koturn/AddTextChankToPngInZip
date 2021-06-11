@@ -1,6 +1,8 @@
 AddTextChankToPngInZip
 ======================
 
+[![Build status](https://ci.appveyor.com/api/projects/status/bo5fh2d8sew2fcs2?svg=true)](https://ci.appveyor.com/project/koturn/addtextchanktopnginzip "AppVeyor | koturn/AddTextChankToPngInZip")
+
 ## 概要
 
 clusterの写真ファイル名を日付形式にリネームし，tEXtチャンクに撮影日時を入れるやつ
