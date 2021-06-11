@@ -16,13 +16,34 @@ namespace AddTextChankToPngInZip
     /// </summary>
     static class Program
     {
+        /// <summary>
+        /// Default read buffer size.
+        /// </summary>
         private const int DefaultBufferSize = 8192;
+        /// <summary>
+        /// Chunk type string of tEXt chunk.
+        /// </summary>
         private const string ChunkNameText = "tEXt";
+        /// <summary>
+        /// Chunk type string of tIME chunk.
+        /// </summary>
         private const string ChunkNameTime = "tIME";
+        /// <summary>
+        /// Chunk type string of IEND chunk.
+        /// </summary>
         private const string ChunkNameIend = "IEND";
+        /// <summary>
+        /// Predefined keyword of tEXt chunk for short (one line) title or caption for image.
+        /// </summary>
         private const string TextChunkKeyTitle = "Title";
+        /// <summary>
+        /// Predefined keyword of tEXt chunk for time of original image creation.
+        /// </summary>
         private const string TextChunkKeyCreationTime = "Creation Time";
 
+        /// <summary>
+        /// <see cref="byte"/> array of PNG sinature.
+        /// </summary>
         private static readonly byte[] PngSignature;
         /// <summary>
         /// Logging instance.
@@ -61,6 +82,10 @@ namespace AddTextChankToPngInZip
             return 0;
         }
 
+        /// <summary>
+        /// Process one zip file.
+        /// </summary>
+        /// <param name="srcZipFilePath">Source zip file path.</param>
         static void AddTextChunkToPngInZip(string srcZipFilePath)
         {
             _logger.Info("Target zip file: {0}", srcZipFilePath);
@@ -122,6 +147,7 @@ namespace AddTextChankToPngInZip
 
                     try
                     {
+                        // if tsDict not contains srcEntry.LastWriteTime, n is initialized to 0.
                         tsDict.TryGetValue(srcEntry.LastWriteTime, out int n);
                         tsDict[srcEntry.LastWriteTime] = n + 1;
 
@@ -183,6 +209,13 @@ namespace AddTextChankToPngInZip
             }
         }
 
+        /// <summary>
+        /// Add tEXt and tIME chunk while copying PNG data stream.
+        /// </summary>
+        /// <param name="srcPngStream">Source PNG data stream.</param>
+        /// <param name="dstPngStream">Destination stream.</param>
+        /// <param name="textChunkKeyValues">Key/Value list for tEXt chunk.</param>
+        /// <param name="dt"><see cref="DateTime"/> for tIME chunk.</param>
         static void AddTextTimeChunk(Stream srcPngStream, Stream dstPngStream, List<KeyValuePair<string, string>> textChunkKeyValues, DateTime dt)
         {
             var buffer = new byte[DefaultBufferSize];
@@ -281,7 +314,12 @@ namespace AddTextChankToPngInZip
             } while (chunkType != ChunkNameIend);
         }
 
-        private static void WriteTextChunks(BinaryWriter bw, IEnumerable<KeyValuePair<string, string>>  textChunkKeyValues)
+        /// <summary>
+        /// Write tEXt chunks.
+        /// </summary>
+        /// <param name="bw"><see cref="BinaryWriter"/> of destination PNG stream.</param>
+        /// <param name="textChunkKeyValues">Key/Value list for tEXt chunk.</param>
+        private static void WriteTextChunks(BinaryWriter bw, IEnumerable<KeyValuePair<string, string>> textChunkKeyValues)
         {
             foreach (var p in textChunkKeyValues)
             {
@@ -289,6 +327,12 @@ namespace AddTextChankToPngInZip
             }
         }
 
+        /// <summary>
+        /// Write tEXt chunk.
+        /// </summary>
+        /// <param name="bw"><see cref="BinaryWriter"/> of destination PNG stream.</param>
+        /// <param name="key">Key of tEXt chunk.</param>
+        /// <param name="value">Value of tEXt chunk.</param>
         private static void WriteTextChunk(BinaryWriter bw, string key, string value)
         {
             var keyData = Encoding.ASCII.GetBytes(key);
@@ -311,6 +355,11 @@ namespace AddTextChankToPngInZip
             bw.Write(SwapBytes(Crc32Calculator.Finalize(crc)));
         }
 
+        /// <summary>
+        /// Write tIME chunk.
+        /// </summary>
+        /// <param name="bw"><see cref="BinaryWriter"/> of destination PNG stream.</param>
+        /// <param name="dt"><see cref="DateTime"/> value for tIME chunk.</param>
         private static void WriteTimeChunk(BinaryWriter bw, DateTime dt)
         {
             var dtData = new byte[] {
@@ -336,6 +385,11 @@ namespace AddTextChankToPngInZip
             bw.Write(SwapBytes(Crc32Calculator.Finalize(crc)));
         }
 
+        /// <summary>
+        /// Identify the specified binary data has a PNG signature or not.
+        /// </summary>
+        /// <param name="data">Binary data</param>
+        /// <returns>True if the specified binary has a PNG signature, otherwise false.</returns>
         private static bool HasPngSignature(byte[] data)
         {
             if (data.Length < PngSignature.Length)
@@ -354,11 +408,21 @@ namespace AddTextChankToPngInZip
             return true;
         }
 
+        /// <summary>
+        /// Swap byte ordering of an <see cref="int"/> value.
+        /// </summary>
+        /// <param name="x">An <see cref="int"/> value.</param>
+        /// <returns>Swapped <see cref="int"/> value.</returns>
         private static int SwapBytes(int x)
         {
             return (int)SwapBytes((uint)x);
         }
 
+        /// <summary>
+        /// Swap byte ordering of an <see cref="uint"/> value.
+        /// </summary>
+        /// <param name="x">An <see cref="uint"/> value.</param>
+        /// <returns>Swapped <see cref="uint"/> value.</returns>
         private static uint SwapBytes(uint x)
         {
             return ((x & 0xff000000) >> 24)
