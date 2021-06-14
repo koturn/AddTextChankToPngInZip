@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using Ionic.Zlib;
 
 using NLog;
 
@@ -29,6 +30,10 @@ namespace AddTextChankToPngInZip
         /// Chunk type string of tIME chunk.
         /// </summary>
         private const string ChunkNameTime = "tIME";
+        /// <summary>
+        /// Chunk type string of IDAT chunk.
+        /// </summary>
+        private const string ChunkNameIdat = "IDAT";
         /// <summary>
         /// Chunk type string of IEND chunk.
         /// </summary>
@@ -110,7 +115,7 @@ namespace AddTextChankToPngInZip
                     {
                         using (var srcZs = srcEntry.Open())
                         {
-                            var dstEntry = dstArchive.CreateEntry(srcEntry.FullName, CompressionLevel.Optimal);
+                            var dstEntry = dstArchive.CreateEntry(srcEntry.FullName, System.IO.Compression.CompressionLevel.Optimal);
                             dstEntry.LastWriteTime = srcEntry.LastWriteTime;
 
                             using var dstZs = dstEntry.Open();
@@ -157,7 +162,7 @@ namespace AddTextChankToPngInZip
 
                         var dstEntry = dstArchive.CreateEntry(
                             string.Join('/', entryParts),
-                            CompressionLevel.Optimal);
+                            System.IO.Compression.CompressionLevel.Optimal);
                         dstEntry.LastWriteTime = srcEntry.LastWriteTime;
                         using (var srcZs = srcEntry.Open())
                         using (var dstZs = dstEntry.Open())
@@ -253,6 +258,35 @@ namespace AddTextChankToPngInZip
 
                 chunkType = Encoding.ASCII.GetString(chunkTypeData);
 
+                if (chunkType == ChunkNameIdat)
+                {
+                    var ims = new MemoryStream((int)dataLength);
+                    do
+                    {
+                        var idatData = br.ReadBytes((int)dataLength);
+                        ims.Write(idatData, 0, idatData.Length);
+                        br.ReadInt32();  // Skip CRC-32
+
+                        dataLength = BinaryPrimitives.ReverseEndianness(br.ReadUInt32());
+                        if (br.Read(chunkTypeData) < chunkTypeData.Length)
+                        {
+                            throw new Exception("Failed to read chunk type.");
+                        }
+                        chunkType = Encoding.ASCII.GetString(chunkTypeData);
+                    } while (chunkType == ChunkNameIdat);
+
+                    using var oms = new MemoryStream((int)ims.Length);
+                    ims.Seek(0, SeekOrigin.Begin);
+                    RecompressDeflatedData(oms, ims);
+
+                    if (oms.Length >= ims.Length)
+                    {
+                        _logger.Warn("Recompress data size is large than original: {0} Bytes / {1} Bytes", oms.Length, ims.Length);
+                    }
+                    var newIdatData = oms.ToArray();
+                    WriteChunk(bw, "IDAT", newIdatData);
+                }
+
                 if (chunkType == ChunkNameText)
                 {
                     buffer = EnsureCapacity(buffer, (int)dataLength);
@@ -309,6 +343,13 @@ namespace AddTextChankToPngInZip
             } while (chunkType != ChunkNameIend);
         }
 
+        private static void RecompressDeflatedData(MemoryStream oms, MemoryStream ims)
+        {
+            using var izs = new ZlibStream(ims, Ionic.Zlib.CompressionMode.Decompress, true);
+            using var ozs = new ZlibStream(oms, Ionic.Zlib.CompressionMode.Compress, Ionic.Zlib.CompressionLevel.BestCompression, true);
+            izs.CopyTo(ozs);
+        }
+
         /// <summary>
         /// Write tEXt chunks.
         /// </summary>
@@ -320,6 +361,27 @@ namespace AddTextChankToPngInZip
             {
                 WriteTextChunk(bw, p.Key, p.Value);
             }
+        }
+
+        private static void WriteChunk(BinaryWriter bw, string chunkType, byte[] chunkData)
+        {
+            WriteChunk(bw, Encoding.ASCII.GetBytes(chunkType).AsSpan(), chunkData.AsSpan());
+        }
+
+        private static void WriteChunk(BinaryWriter bw, byte[] chunkTypeAscii, byte[] chunkData)
+        {
+            WriteChunk(bw, chunkTypeAscii.AsSpan(), chunkData.AsSpan());
+        }
+
+        private static void WriteChunk(BinaryWriter bw, Span<byte> chunkTypeAscii, Span<byte> chunkData)
+        {
+            bw.Write(BinaryPrimitives.ReverseEndianness(chunkData.Length));
+            bw.Write(chunkTypeAscii);
+            bw.Write(chunkData);
+
+            var crc = Crc32Calculator.Update(chunkTypeAscii);
+            crc = Crc32Calculator.Update(chunkData, crc);
+            bw.Write(BinaryPrimitives.ReverseEndianness(Crc32Calculator.Finalize(crc)));
         }
 
         /// <summary>
